@@ -5,28 +5,29 @@ from picamzero import Camera
 import fish_detection as fd
 
 # Constants
-max_speed = 4  # Maximum speed
-max_force = 2  # Turning force
-view_angle = np.radians(150)  # 150 degrees field of view
+MAX_SPEED = 4  # Maximum speed
+TURNING_FORCE = 2  # Turning force
+VIEW_ANGLE = np.radians(150)  # 150 degrees field of view
+MOTOR_DELAY = 0.8  # Delay for motor movement (tail wagging)
 
 # GPIO pin setup
-motor_pin1 = 10  # GPIO pin connected to L293D input 1
-motor_pin2 = 12  # GPIO pin connected to L293D input 2
-enable_pin = 8  # GPIO pin connected to L293D enable pin
-water_pin = 22  # GPIO pin connected to the water sensor
-led_pin = 36  # GPIO pin for the LED
+MOTOR_PIN1 = 10  # GPIO pin connected to L293D input 1
+MOTOR_PIN2 = 12  # GPIO pin connected to L293D input 2
+ENABLE_PIN = 8  # GPIO pin connected to L293D enable pin
+WATER_PIN = 22  # GPIO pin connected to the water sensor
+LED_PIN = 36  # GPIO pin for the LED
 
-# Initialise GPIO
+#Initialise GPIO
 GPIO.setmode(GPIO.BOARD)
-GPIO.setup(motor_pin1, GPIO.OUT)
-GPIO.setup(motor_pin2, GPIO.OUT)
-GPIO.setup(enable_pin, GPIO.OUT)
-GPIO.setup(led_pin, GPIO.OUT)
-GPIO.setup(water_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)  # Set GPIO_PIN as input
-GPIO.output(enable_pin, GPIO.LOW)  # Disable the motor driver initially
-GPIO.output(led_pin, GPIO.HIGH)  # Turn on LED/ replace by logic
+GPIO.setup(MOTOR_PIN1, GPIO.OUT)
+GPIO.setup(MOTOR_PIN2, GPIO.OUT)
+GPIO.setup(ENABLE_PIN, GPIO.OUT)
+GPIO.setup(LED_PIN, GPIO.OUT)
+GPIO.setup(WATER_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)  #Set GPIO_PIN as input
+GPIO.output(ENABLE_PIN, GPIO.LOW)  #Disable the motor driver initially
+GPIO.output(LED_PIN, GPIO.HIGH)  #Turn on LED/ replace by logic
 
-# Boid class
+#Boid class
 class Boid:
     def __init__(self, position, velocity):
         self.position = np.array(position, dtype=np.float64)
@@ -34,93 +35,110 @@ class Boid:
         self.acceleration = np.zeros(2)
 
     def limit(self, vector, max_val):
-        mag = np.linalg.norm(vector)
-        if mag > max_val:
-            vector = vector / mag * max_val
+        #Limit vector to maximum magnitude
+        magnitude = np.linalg.norm(vector)
+        if magnitude > max_val:
+            vector = vector / magnitude * max_val
         return vector
 
-    def apply_force(self, force):
-        self.acceleration += force
-
-    def flock(self, fishes):
+    def flock(self, fishes, obstacles):
         if fishes:
-            avg_position = np.mean(fishes)
-            if avg_position < -3:
-                self.velocity = np.array([max_speed, max_force])
-            elif avg_position > 3:
-                self.velocity = np.array([max_speed, -max_force])
-            else:
-                self.velocity = np.array([max_speed, 0])
+            avg_fish_direction = np.mean(fishes) #Find the average direction of all fishes
         else:
-            self.velocity = np.array([0, 0])
+            avg_fish_direction = 0
+
+        if obstacles:
+            direction = avg_fish_direction - np.mean(obstacles) #Calculate the desired direction by avoiding the obstacles
+        else:
+            direction = avg_fish_direction
+
+        if direction > 3:
+            self.velocity = np.array([MAX_SPEED, -TURNING_FORCE])
+        elif direction < -3:
+            self.velocity = np.array([MAX_SPEED, TURNING_FORCE])
+        else:
+            self.velocity = np.array([MAX_SPEED, 0])
 
     def update(self):
-        self.velocity = self.limit(self.velocity, max_speed)
+        #Update boid position and reset acc
+        self.velocity = self.limit(self.velocity, MAX_SPEED)
         self.position += self.velocity
         self.acceleration = np.zeros(2)
 
     def control_tail(self, in_water):
         if in_water:
-            # Calculate the desired direction
+            #Calculate the desired direction
             desired_direction = np.arctan2(self.velocity[1], self.velocity[0])
             current_direction = np.arctan2(self.position[1], self.position[0])
             direction_difference = desired_direction - current_direction
-            # Enable the motor driver
-            GPIO.output(enable_pin, GPIO.HIGH)
-            # Move the tail to turn the fish
-            if np.abs(direction_difference) > 0.1:  # Threshold to determine if turning is needed
-                if direction_difference > 0:  # Turn right
+            
+            #Move the tail to turn the fish
+            if np.abs(direction_difference) > 0.1:  #Threshold to determine if turning is needed
+                if direction_difference > 0:  #Turn right
                     print('Turning right')
-                    GPIO.output(motor_pin1, GPIO.HIGH)
-                    GPIO.output(motor_pin2, GPIO.LOW)
-                else:  # Turn left
+                    self._move_motor(GPIO.HIGH, GPIO.LOW)
+                else:  #Turn left
                     print('Turning left')
-                    GPIO.output(motor_pin1, GPIO.LOW)
-                    GPIO.output(motor_pin2, GPIO.HIGH)
-            else:  # Move forward
+                    self._move_motor(GPIO.LOW, GPIO.HIGH)
+            else:  #Move forward
                 self.move_tail()
         else:
             print('Stopping motor')
-            # If not in water or not moving forward disable the motor driver
-            GPIO.output(enable_pin, GPIO.LOW)
-            GPIO.output(motor_pin1, GPIO.LOW)
-            GPIO.output(motor_pin2, GPIO.LOW)
+            #If not in water or not moving forward disable the motor driver
+            GPIO.output(ENABLE_PIN, GPIO.LOW)
+            GPIO.output(MOTOR_PIN1, GPIO.LOW)
+            GPIO.output(MOTOR_PIN2, GPIO.LOW)
 
     def move_tail(self):
         print('Swimming forwards')
-        GPIO.output(enable_pin, GPIO.HIGH)
-        # Alternating tail movement
-        GPIO.output(motor_pin1, GPIO.HIGH)
-        GPIO.output(motor_pin2, GPIO.LOW)
-        time.sleep(0.8)  # Sleep time determines speed
-        GPIO.output(motor_pin1, GPIO.LOW)
-        GPIO.output(motor_pin2, GPIO.HIGH)
-        time.sleep(0.8)
+        #Alternating tail movement to swimmmmmmmmmm
+        self._move_motor(GPIO.HIGH, GPIO.LOW)
+        time.sleep(MOTOR_DELAY)
+        self._move_motor(GPIO.LOW, GPIO.HIGH)
+        time.sleep(MOTOR_DELAY)
 
-        # Disable the motor driver after wagging the tail to save power
-        GPIO.output(enable_pin, GPIO.LOW)
+        self._stop_motor()
+
+    def _move_motor(self, pin1_state, pin2_state):
+        #Control the motor driver.
+        GPIO.output(ENABLE_PIN, GPIO.HIGH)
+        GPIO.output(MOTOR_PIN1, pin1_state)
+        GPIO.output(MOTOR_PIN2, pin2_state)
+
+    def _stop_motor(self):
+        #Stop the motor and disable the motor driver.
+        GPIO.output(ENABLE_PIN, GPIO.LOW)
+        GPIO.output(MOTOR_PIN1, GPIO.LOW)
+        GPIO.output(MOTOR_PIN2, GPIO.LOW)
 
 def main():
-    camera = Camera()  # Initialise camera in main script to save time of it turning on every cycle
+    camera = Camera()  #Initialise camera in main script to save time of it turning on every cycle
     camera.resolution = (320, 240)
-    time.sleep(1)  # Give camera time to turn on
+    time.sleep(1)  #Give camera time to turn on
+
     central_boid = Boid([0, 0], [0, 0])
+    
     try:
         while True:
             try:
-                fishes = fd.findfish(camera)
-                print(fishes)
-                central_boid.flock(fishes)
+                fishes, obstacles = fd.findfish(camera)
+                print(f'Fish positions: {fishes}')
+                print(f'Obstacle positions: {obstacles}')
+
+                central_boid.flock(fishes, obstacles)
                 central_boid.update()
-                in_water = not GPIO.input(water_pin)
+
+                in_water = not GPIO.input(WATER_PIN)
                 central_boid.control_tail(in_water)
+
                 time.sleep(0.1)
-            except Exception as e:
-                print(f"Error: {e}")
+            except:
+                print("Error occured")
                 break
     finally:
         GPIO.cleanup()
-        camera.close()  # Ensure camera resources are released
+        camera.close()  #Ensure camera resources are released
+        print("GPIO cleaned up and camera closed.")
 
 if __name__ == "__main__":
     main()

@@ -2,41 +2,65 @@ import numpy as np
 import cv2
 from picamzero import Camera
 
-def findfish(camera):
-    image = camera.capture_array()
+blue_hsv_range = (np.array([110, 150, 150]), np.array([130, 255, 255]))
+red_hsv_range1 = (np.array([0, 150, 150]), np.array([10, 255, 255]))
+red_hsv_range2 = (np.array([170, 150, 150]), np.array([180, 255, 255]))
 
-    # Convert image to HSV
-    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+def preprocess_mask(mask, kernel_size = 5, iterations = 1):
+    #Clean up a mask using erosion and dilation
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
+    mask = cv2.erode(mask, kernel, iterations=iterations)
+    mask = cv2.dilate(mask, kernel, iterations=iterations)
+    return mask
 
-    # Define HSV range for detecting blue colour
-    lower_hsv = np.array([110, 50, 50])
-    upper_hsv = np.array([130, 255, 255])
-    mask = cv2.inRange(hsv, lower_hsv, upper_hsv)
-
-    # Apply magic to clean up the mask
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.erode(mask, kernel, iterations=1)
-    mask = cv2.dilate(mask, kernel, iterations=1)
-
-    # Find contours
+def find_contours(mask, min_area = 1000):
+    #Find contours in a mask and filter them based on a minimum area
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    min_size = 1000  # Increase the minimum size to filter out smaller contours
-    blue_coordinates = []
-
+    coordinates = []
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area < min_size:
-            continue
-        x, y, w, h = cv2.boundingRect(contour)
-        blue_coordinates.append((x, y, w, h))
+        if area >= min_area:
+            x, y, w, h = cv2.boundingRect(contour)
+            coordinates.append((x, y, w, h))
+    return coordinates
 
-    # Determine position of detected fish
+def calculate_positions(coordinates, image_width):
+    #Calculate normalised positions of detected objects
     positions = []
-    img_width = image.shape[1]
-    for (x, y, w, h) in blue_coordinates:
-        center_x = x + w // 2
-        normalized_position = (center_x - img_width // 2) / (img_width // 2) * 10
-        integer_position = int(round(normalized_position))
-        positions.append(integer_position)
-
+    for (x, y, w, h) in coordinates:
+        centre_x = x + w // 2
+        normalised_position = (centre_x - image_width // 2) / (image_width // 2) * 10
+        position = int(round(normalised_position))
+        positions.append(position)
     return positions
+
+def findfish(camera, min_area = 1000, kernel_size = 5):
+    #Detect blue and red fish in an image captured by the camera.
+    try:
+        #Capture image from the camera
+        image = camera.capture_array()
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        img_width = image.shape[1]
+
+        #Detect fish
+        lower_blue_hsv, upper_blue_hsv = blue_hsv_range
+        blue_mask = cv2.inRange(hsv, lower_blue_hsv, upper_blue_hsv)
+        blue_mask = preprocess_mask(blue_mask, kernel_size)
+        blue_coordinates = find_contours(blue_mask, min_area)
+        blue_positions = calculate_positions(blue_coordinates, img_width)
+
+        #Detect obstacle
+        lower_red_hsv1, upper_red_hsv1 = red_hsv_range1
+        lower_red_hsv2, upper_red_hsv2 = red_hsv_range2
+        red_mask1 = cv2.inRange(hsv, lower_red_hsv1, upper_red_hsv1)
+        red_mask2 = cv2.inRange(hsv, lower_red_hsv2, upper_red_hsv2)
+        red_mask = cv2.bitwise_or(red_mask1, red_mask2)
+        red_mask = preprocess_mask(red_mask, kernel_size)
+        red_coordinates = find_contours(red_mask, min_area)
+        red_positions = calculate_positions(red_coordinates, img_width)
+
+        return blue_positions, red_positions
+
+    except:
+        print("An error occurred")
+        return [], []
