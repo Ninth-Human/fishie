@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 from picamzero import Camera
 
-blue_hsv_range = (np.array([110, 150, 150]), np.array([130, 255, 255]))
+blue_hsv_range = (np.array([110, 100, 100]), np.array([130, 255, 255]))
 red_hsv_range1 = (np.array([0, 150, 150]), np.array([10, 255, 255]))
 red_hsv_range2 = (np.array([170, 150, 150]), np.array([180, 255, 255]))
 
