@@ -52,9 +52,9 @@ class Boid:
         else:
             direction = avg_fish_direction
 
-        if direction > 3:
+        if direction > 5:
             self.velocity = np.array([MAX_SPEED, -TURNING_FORCE])
-        elif direction < -3:
+        elif direction < -5:
             self.velocity = np.array([MAX_SPEED, TURNING_FORCE])
         else:
             self.velocity = np.array([MAX_SPEED, 0])
